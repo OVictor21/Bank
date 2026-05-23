@@ -1,0 +1,4 @@
+- [ ] Scaffold and configure a React + Tailwind project in the current workspace.
+- [ ] Install and configure Tailwind CSS, PostCSS, and Autoprefixer.
+- [ ] Replace the default Vite React template with a landing page inspired by the attached One Nevada Credit Union homepage.
+- [ ] Ensure the app builds successfully and update README with launch instructions.
