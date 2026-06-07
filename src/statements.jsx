@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { CalendarDays, Download, Eye, FileText, Search, ShieldCheck } from "lucide-react";
 import logo from "./assets/onenevada.svg";
-
-const user = { name: "Marcus Johnson", initials: "MJ" };
+import { supabase } from "./supabaseClient";
+import { usePageUser } from "./pageHelpers";
 
 const navItems = [
   { label: "Account", path: "/dashboard" },
@@ -14,14 +14,8 @@ const navItems = [
   { label: "Report Issue", path: "/report" },
 ];
 
-const statements = [
-  { id: "STM-2026-05", account: "One Checking Rewards", period: "May 2026", date: "May 31, 2026", size: "1.8 MB", type: "Monthly" },
-  { id: "STM-2026-04", account: "One Checking Rewards", period: "April 2026", date: "Apr 30, 2026", size: "1.7 MB", type: "Monthly" },
-  { id: "STM-2026-Q1", account: "Primary Savings", period: "Q1 2026", date: "Mar 31, 2026", size: "2.4 MB", type: "Quarterly" },
-  { id: "TAX-2025-INT", account: "Primary Savings", period: "2025 Tax Forms", date: "Jan 31, 2026", size: "824 KB", type: "Tax" },
-];
-
 function Header() {
+  const { user, logout } = usePageUser();
   return (
     <header className="w-full bg-white shadow-md sticky top-0 z-50 border-b border-gray-200">
       <div className="px-6 h-20 flex items-center justify-between">
@@ -39,7 +33,7 @@ function Header() {
           <Link to="/settings" className="border border-[#041a49] text-[#041a49] hover:bg-[#041a49] hover:text-white transition-colors px-4 py-2 rounded-xl text-sm font-semibold">
             Settings
           </Link>
-          <button className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">Logout</button>
+          <button onClick={logout} className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">Logout</button>
           <div className="hidden md:flex items-center gap-2 border border-gray-200 rounded-full px-3 py-2 bg-white">
             <div className="w-8 h-8 rounded-full bg-[#117ACA] text-white flex items-center justify-center text-xs font-black">{user.initials}</div>
             <div className="text-left leading-tight">
@@ -56,6 +50,35 @@ function Header() {
 export default function StatementsPage() {
   const [account, setAccount] = useState("All Accounts");
   const [documentType, setDocumentType] = useState("All Documents");
+  const [statements, setStatements] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) return;
+      const { data: txns } = await supabase
+        .from("transactions").select("amount, created_at")
+        .eq("user_id", auth.user.id).order("created_at", { ascending: false });
+      // Group transactions into monthly statements.
+      const groups = {};
+      (txns || []).forEach((t) => {
+        const d = new Date(t.created_at);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        if (!groups[key]) groups[key] = { count: 0, total: 0, date: d };
+        groups[key].count += 1;
+        groups[key].total += Math.abs(Number(t.amount));
+      });
+      const rows = Object.entries(groups).map(([key, g]) => ({
+        id: "STM-" + key,
+        account: "All Accounts",
+        period: g.date.toLocaleString("en-US", { month: "long", year: "numeric" }),
+        date: g.date.toLocaleDateString(),
+        size: `${g.count} transactions`,
+        type: "Monthly",
+      }));
+      setStatements(rows);
+    })();
+  }, []);
 
   const filteredStatements = useMemo(
     () =>
@@ -64,7 +87,7 @@ export default function StatementsPage() {
           (account === "All Accounts" || statement.account === account) &&
           (documentType === "All Documents" || statement.type === documentType)
       ),
-    [account, documentType]
+    [account, documentType, statements]
   );
 
   return (
@@ -117,6 +140,9 @@ export default function StatementsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredStatements.length === 0 && (
+                    <tr><td colSpan={5} className="px-5 py-8 text-center text-sm text-slate-400">No statements yet — they appear once you have account activity.</td></tr>
+                  )}
                   {filteredStatements.map((statement) => (
                     <tr key={statement.id} className="transition hover:bg-blue-50/50">
                       <td className="px-5 py-4">

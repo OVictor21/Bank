@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import logo from "./assets/onenevada.svg";
-
-const user = {
-  name: "Marcus Johnson",
-  initials: "MJ",
-};
+import { supabase } from "./supabaseClient";
+import { usePageUser } from "./pageHelpers";
 
 const navItems = [
   { label: "Account", path: "/dashboard" },
@@ -17,16 +14,40 @@ const navItems = [
 ];
 
 export default function ReportPage() {
+  const { user, logout } = usePageUser();
   const [form, setForm] = useState({
     issueType: "",
     account: "",
     subject: "",
     description: "",
   });
+  const [status, setStatus] = useState({ type: "", msg: "" });
+  const [submitting, setSubmitting] = useState(false);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async () => {
+    setStatus({ type: "", msg: "" });
+    if (!form.issueType || !form.subject.trim()) {
+      setStatus({ type: "error", msg: "Please choose an issue type and enter a subject." });
+      return;
+    }
+    setSubmitting(true);
+    const { data: auth } = await supabase.auth.getUser();
+    const { error } = await supabase.from("support_tickets").insert({
+      user_id: auth.user.id,
+      issue_type: form.issueType,
+      account_ref: form.account,
+      subject: form.subject,
+      description: form.description,
+    });
+    setSubmitting(false);
+    if (error) { setStatus({ type: "error", msg: error.message }); return; }
+    setStatus({ type: "success", msg: "Report submitted. We'll review it within 1 business day." });
+    setForm({ issueType: "", account: "", subject: "", description: "" });
   };
 
   return (
@@ -58,7 +79,7 @@ export default function ReportPage() {
               Settings
             </Link>
 
-            <button className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
+            <button onClick={logout} className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
               Logout
             </button>
 
@@ -143,12 +164,20 @@ export default function ReportPage() {
               />
             </label>
 
+            {status.msg && (
+              <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${status.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
+                {status.type === "success" ? "✓ " : "⚠ "}{status.msg}
+              </div>
+            )}
+
             <div className="flex justify-end">
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-full bg-[#041a49] px-10 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0c2b70]"
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="inline-flex items-center justify-center rounded-full bg-[#041a49] px-10 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0c2b70] disabled:bg-slate-300"
               >
-                Submit Report
+                {submitting ? "Submitting…" : "Submit Report"}
               </button>
             </div>
           </div>

@@ -1,14 +1,40 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import logo from "./assets/onenevada.svg";
-
-const user = {
-  name: "Marcus Johnson",
-  initials: "MJ",
-};
+import { supabase } from "./supabaseClient";
+import { usePageUser } from "./pageHelpers";
 
 export default function CardForm() {
+  const { user, logout } = usePageUser();
   const [activeNav, setActiveNav] = useState("Card");
+  const [card, setCard] = useState({ card_type: "", full_name: "", phone: "", ssn: "", address: "", annual_income: "", employment: "", credit_score: "" });
+  const [status, setStatus] = useState({ type: "", msg: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const setF = (k) => (e) => setCard((c) => ({ ...c, [k]: e.target.value }));
+
+  const handleApply = async () => {
+    setStatus({ type: "", msg: "" });
+    if (!card.card_type || !card.full_name.trim()) {
+      setStatus({ type: "error", msg: "Please select a card type and enter your full name." });
+      return;
+    }
+    setSubmitting(true);
+    const { data: auth } = await supabase.auth.getUser();
+    const { error } = await supabase.from("card_applications").insert({
+      user_id: auth.user.id,
+      card_type: card.card_type,
+      full_name: card.full_name,
+      phone: card.phone,
+      address: card.address,
+      annual_income: card.annual_income ? Number(card.annual_income) : null,
+      employment: card.employment,
+      credit_score: card.credit_score ? Number(card.credit_score) : null,
+    });
+    setSubmitting(false);
+    if (error) { setStatus({ type: "error", msg: error.message }); return; }
+    setStatus({ type: "success", msg: "Card application submitted! We'll review and notify you." });
+    setCard({ card_type: "", full_name: "", phone: "", ssn: "", address: "", annual_income: "", employment: "", credit_score: "" });
+  };
 
   return (
     <div className="min-h-screen bg-[#D6EAF8] font-sans flex flex-col mt-[-50px]">
@@ -118,7 +144,7 @@ export default function CardForm() {
             </Link>
 
             {/* Logout */}
-            <button className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
+            <button onClick={logout} className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
               ⏻ Logout
             </button>
 
@@ -157,8 +183,8 @@ export default function CardForm() {
                 Card Type
               </label>
 
-              <select className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100">
-                <option>Select...</option>
+              <select value={card.card_type} onChange={setF("card_type")} className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100">
+                <option value="">Select...</option>
                 <option>Visa® Signature</option>
                 <option>Visa® Platinum</option>
                 <option>Visa® Shared Secured</option>
@@ -174,6 +200,8 @@ export default function CardForm() {
               <input
                 type="text"
                 placeholder="Full Name"
+                value={card.full_name}
+                onChange={setF("full_name")}
                 className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 placeholder:text-gray-400 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100"
               />
             </div>
@@ -183,23 +211,27 @@ export default function CardForm() {
               <label className="block text-sm font-medium text-[#0B1C48] mb-2">
                 Phone Number
               </label>
-               
+
               <input
                 type="text"
                 placeholder="123-456-7890"
+                value={card.phone}
+                onChange={setF("phone")}
                 className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 placeholder:text-gray-400 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
-            
+
             <div className="mb-5">
               <label className="block text-sm font-medium text-[#0B1C48] mb-2">
                 SSN
               </label>
-               
+
               <input
                 type="text"
-                placeholder="123-456-7890"
+                placeholder="123-45-6789"
+                value={card.ssn}
+                onChange={setF("ssn")}
                 className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 placeholder:text-gray-400 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100"
               />
             </div>
@@ -213,6 +245,8 @@ export default function CardForm() {
               <input
                 type="text"
                 placeholder="Your address"
+                value={card.address}
+                onChange={setF("address")}
                 className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 placeholder:text-gray-400 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100"
               />
             </div>
@@ -226,6 +260,8 @@ export default function CardForm() {
               <input
                 type="number"
                 placeholder="50000"
+                value={card.annual_income}
+                onChange={setF("annual_income")}
                 className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 placeholder:text-gray-400 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100"
               />
             </div>
@@ -236,8 +272,8 @@ export default function CardForm() {
                 Employment Status
               </label>
 
-              <select className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100">
-                <option>Select...</option>
+              <select value={card.employment} onChange={setF("employment")} className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100">
+                <option value="">Select...</option>
                 <option>Employed</option>
                 <option>Self Employed</option>
                 <option>Unemployed</option>
@@ -253,13 +289,21 @@ export default function CardForm() {
               <input
                 type="number"
                 placeholder="700"
+                value={card.credit_score}
+                onChange={setF("credit_score")}
                 className="w-full bg-white text-[#041a49] px-4 py-2.5 rounded-xl outline-none border border-slate-300 placeholder:text-gray-400 focus:border-[#117ACA] focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
+            {status.msg && (
+              <div className={`mb-4 rounded-xl px-4 py-3 text-sm font-semibold ${status.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
+                {status.type === "success" ? "✓ " : "⚠ "}{status.msg}
+              </div>
+            )}
+
             {/* Apply Button */}
-            <button className="w-full bg-[#041a49] hover:bg-[#0c2b70] text-white font-semibold py-2.5 rounded-xl transition duration-300 shadow-lg">
-              Apply
+            <button onClick={handleApply} disabled={submitting} className="w-full bg-[#041a49] hover:bg-[#0c2b70] text-white font-semibold py-2.5 rounded-xl transition duration-300 shadow-lg disabled:bg-slate-300">
+              {submitting ? "Submitting…" : "Apply"}
             </button>
           </div>
         </div>

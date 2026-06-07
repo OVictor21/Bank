@@ -1,11 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import logo from "./assets/onenevada.svg";
-
-const user = {
-  name: "Marcus Johnson",
-  initials: "MJ",
-};
+import { supabase } from "./supabaseClient";
+import { usePageUser } from "./pageHelpers";
 
 const navItems = [
   { label: "Account", path: "/dashboard" },
@@ -38,20 +35,55 @@ function Toggle({ enabled, onChange, label }) {
 function ProfileSettings() {
   const [editing, setEditing] = useState(false);
   const [profilePicture, setProfilePicture] = useState("");
+  const [saveMsg, setSaveMsg] = useState("");
+  const [userId, setUserId] = useState(null);
   const [profile, setProfile] = useState({
-    fullName: "Marcus Johnson",
-    email: "marcus.johnson@example.com",
-    address: "4527 Desert Ridge Ave, Las Vegas, NV 89101",
-    phone: "(702) 555-0148",
-    state: "Nevada",
-    country: "United States",
-    zipCode: "89101",
-    ssn: "***-**-4821",
+    fullName: "", email: "", address: "", phone: "",
+    state: "", country: "United States", zipCode: "", ssn: "",
   });
+
+  useEffect(() => {
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) return;
+      setUserId(auth.user.id);
+      const { data: p } = await supabase.from("profiles").select("*").eq("id", auth.user.id).single();
+      if (p) {
+        setProfile({
+          fullName: p.full_name || "",
+          email: p.email || auth.user.email || "",
+          address: p.address || "",
+          phone: p.phone || "",
+          state: p.state || "",
+          country: "United States",
+          zipCode: p.zip || "",
+          ssn: "***-**-****",
+        });
+      }
+    })();
+  }, []);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
     setProfile((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleToggleEdit = async () => {
+    if (editing) {
+      // Saving
+      setSaveMsg("");
+      const initials = (profile.fullName || "U").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+      const { error } = await supabase.from("profiles").update({
+        full_name: profile.fullName,
+        phone: profile.phone,
+        address: profile.address,
+        state: profile.state,
+        zip: profile.zipCode,
+        initials,
+      }).eq("id", userId);
+      setSaveMsg(error ? `⚠ ${error.message}` : "✓ Profile saved.");
+    }
+    setEditing((v) => !v);
   };
 
   const handleProfilePictureChange = (event) => {
@@ -69,12 +101,15 @@ function ProfileSettings() {
         </div>
         <button
           type="button"
-          onClick={() => setEditing((value) => !value)}
+          onClick={handleToggleEdit}
           className="w-fit rounded-full border border-[#117ACA] px-4 py-2 text-sm font-bold text-[#117ACA] hover:bg-blue-50"
         >
-          {editing ? "Done" : "Edit"}
+          {editing ? "Save" : "Edit"}
         </button>
       </div>
+      {saveMsg && (
+        <div className={`mt-4 rounded-2xl px-4 py-3 text-sm font-semibold ${saveMsg.startsWith("✓") ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>{saveMsg}</div>
+      )}
 
       <div className="mt-6 flex flex-col gap-5 rounded-3xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
@@ -82,7 +117,7 @@ function ProfileSettings() {
             {profilePicture ? (
               <img src={profilePicture} alt="Profile preview" className="h-full w-full object-cover" />
             ) : (
-              user.initials
+              (profile.fullName || "U").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
             )}
           </div>
           <div>
@@ -158,9 +193,24 @@ function SecuritySettings() {
     confirmPassword: "",
   });
 
+  const [pwMsg, setPwMsg] = useState("");
+  const [pwSaving, setPwSaving] = useState(false);
+
   const handlePasswordChange = (event) => {
     const { name, value } = event.target;
     setPasswords((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleUpdatePassword = async () => {
+    setPwMsg("");
+    if (passwords.newPassword.length < 6) { setPwMsg("⚠ New password must be at least 6 characters."); return; }
+    if (passwords.newPassword !== passwords.confirmPassword) { setPwMsg("⚠ Passwords do not match."); return; }
+    setPwSaving(true);
+    const { error } = await supabase.auth.updateUser({ password: passwords.newPassword });
+    setPwSaving(false);
+    if (error) { setPwMsg(`⚠ ${error.message}`); return; }
+    setPwMsg("✓ Password updated.");
+    setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" });
   };
 
   return (
@@ -171,10 +221,14 @@ function SecuritySettings() {
             <h2 className="text-xl font-black text-[#07133B]">Password</h2>
             <p className="mt-1 text-sm text-slate-500">Change your password using your current credentials.</p>
           </div>
-          <button className="w-fit rounded-full bg-[#041a49] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0c2b70]">
-            Update Password
+          <button onClick={handleUpdatePassword} disabled={pwSaving} className="w-fit rounded-full bg-[#041a49] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0c2b70] disabled:bg-slate-300">
+            {pwSaving ? "Updating…" : "Update Password"}
           </button>
         </div>
+
+        {pwMsg && (
+          <div className={`mt-4 rounded-2xl px-4 py-3 text-sm font-semibold ${pwMsg.startsWith("✓") ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>{pwMsg}</div>
+        )}
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           {[
@@ -360,6 +414,7 @@ function PrivacySettings() {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("Profile");
+  const { user, logout } = usePageUser();
 
   const renderActiveTab = () => {
     if (activeTab === "Profile") return <ProfileSettings />;
@@ -392,7 +447,7 @@ export default function SettingsPage() {
             <Link className="bg-[#041a49] text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md" to="/settings">
               Settings
             </Link>
-            <button className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
+            <button onClick={logout} className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
               Logout
             </button>
             <div className="hidden md:flex items-center gap-2 border border-gray-200 rounded-full px-3 py-2 bg-white">

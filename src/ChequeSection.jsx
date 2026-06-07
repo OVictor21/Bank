@@ -1,13 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import logo from "./assets/onenevada.svg";
-
-const user = {
-  name: "Marcus Johnson",
-  initials: "MJ",
-};
+import { supabase } from "./supabaseClient";
+import { usePageUser, fetchMyAccounts } from "./pageHelpers";
 
 export default function ChequeSection() {
+  const { user, logout } = usePageUser();
   const [form, setForm] = useState({
     chequeSerial: "",
     senderName: "",
@@ -19,6 +17,11 @@ export default function ChequeSection() {
 
   const [fileName, setFileName] = useState("");
   const [activeNav, setActiveNav] = useState("Cash Cheque");
+  const [accounts, setAccounts] = useState([]);
+  const [status, setStatus] = useState({ type: "", msg: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => { fetchMyAccounts().then(setAccounts); }, []);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -30,6 +33,25 @@ export default function ChequeSection() {
     if (file) {
       setFileName(file.name);
     }
+  };
+
+  const handleSubmitCheque = async () => {
+    setStatus({ type: "", msg: "" });
+    const amount = Number(String(form.amount).replace(/[^0-9.]/g, ""));
+    if (!(amount > 0)) { setStatus({ type: "error", msg: "Enter a valid cheque amount." }); return; }
+    const target = accounts[0];
+    if (!target) { setStatus({ type: "error", msg: "No account found to deposit into." }); return; }
+    setSubmitting(true);
+    const { error } = await supabase.rpc("make_deposit", {
+      p_account: target.id,
+      p_amount: amount,
+      p_source: form.senderName ? `Cheque from ${form.senderName}` : "Cheque Deposit",
+    });
+    setSubmitting(false);
+    if (error) { setStatus({ type: "error", msg: error.message }); return; }
+    setStatus({ type: "success", msg: `Cheque submitted. $${amount.toFixed(2)} credited to ${target.type}.` });
+    setForm({ chequeSerial: "", senderName: "", amount: "", accountName: "", accountNumber: "", remark: "" });
+    setFileName("");
   };
 
   return (
@@ -139,7 +161,7 @@ export default function ChequeSection() {
             </Link>
 
             {/* Logout */}
-            <button className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
+            <button onClick={logout} className="bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md">
               ⏻ Logout
             </button>
 
@@ -298,13 +320,21 @@ export default function ChequeSection() {
               </label>
             </div>
 
+            {status.msg && (
+              <div className={`rounded-2xl px-4 py-3 text-sm font-semibold ${status.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
+                {status.type === "success" ? "✓ " : "⚠ "}{status.msg}
+              </div>
+            )}
+
             {/* Submit */}
             <div className="flex items-center justify-center pt-4">
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-full bg-[#041a49] px-10 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0c2b70]"
+                onClick={handleSubmitCheque}
+                disabled={submitting}
+                className="inline-flex items-center justify-center rounded-full bg-[#041a49] px-10 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0c2b70] disabled:bg-slate-300"
               >
-                Submit Cheque
+                {submitting ? "Submitting…" : "Submit Cheque"}
               </button>
             </div>
           </div>
