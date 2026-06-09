@@ -26,6 +26,7 @@ import AchPage from "./ach.jsx";
 import DepositPage from "./deposit.jsx";
 import StatementsPage from "./statements.jsx";
 import WireMoneyPage from "./wiremoney.jsx";
+import AdminPage from "./admin.jsx";
 import { ProtectedRoute } from "./AuthContext.jsx";
 
 
@@ -724,6 +725,7 @@ function App() {
           <Route path="/transaction" element={<ProtectedRoute><TransactionsPage /></ProtectedRoute>} />
           <Route path="/report" element={<ProtectedRoute><ReportPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/signin" element={<SignInPage />} />
           <Route path="/" element={<HomePage />} />
