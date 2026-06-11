@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { supabase } from "./supabaseClient";
 import {
   Bell,
   CheckCircle2,
@@ -268,11 +269,45 @@ function SectionTitle({ icon: Icon, title, detail }) {
 }
 
 export default function AdminPage() {
-  const [accounts, setAccounts] = useState(initialAccounts);
-  const [transactions, setTransactions] = useState(initialTransactions);
-  const [verifications, setVerifications] = useState(initialVerifications);
-  const [selectedAccountId, setSelectedAccountId] = useState("checking");
+  const [accounts, setAccounts] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [verifications, setVerifications] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
   const [balanceAmount, setBalanceAmount] = useState("500");
+  const [notAdmin, setNotAdmin] = useState(false);
+
+  const loadAll = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return;
+    const { data: me } = await supabase.from("profiles").select("is_admin").eq("id", auth.user.id).single();
+    if (!me?.is_admin) { setNotAdmin(true); return; }
+
+    const [{ data: profiles }, { data: accts }, { data: txns }, { data: kyc }] = await Promise.all([
+      supabase.from("profiles").select("id, full_name, email"),
+      supabase.from("accounts").select("*").order("created_at"),
+      supabase.from("transfers").select("*").order("created_at", { ascending: false }).limit(100),
+      supabase.from("kyc_submissions").select("*").order("created_at", { ascending: false }),
+    ]);
+    const nameOf = Object.fromEntries((profiles || []).map((p) => [p.id, p.full_name || p.email]));
+
+    setAccounts((accts || []).map((a) => ({
+      id: a.id, owner: nameOf[a.user_id] || "Unknown", type: a.type,
+      number: a.account_number, balance: Number(a.balance), status: a.status || "Active",
+    })));
+    setTransactions((txns || []).map((t) => ({
+      id: t.id, channel: (t.kind || "transfer").toUpperCase(), owner: nameOf[t.user_id] || "Unknown",
+      amount: Number(t.amount), status: t.status || "Pending",
+      date: new Date(t.created_at).toLocaleDateString(),
+    })));
+    setVerifications((kyc || []).map((k) => ({
+      id: k.id, item: k.doc_type || "KYC", owner: nameOf[k.user_id] || "Unknown",
+      status: k.status === "approved" ? "Approved" : "Pending",
+      notification: k.status === "approved" ? "Sent" : "Queued",
+    })));
+    if (accts && accts[0]) setSelectedAccountId(accts[0].id);
+  };
+
+  useEffect(() => { loadAll(); }, []);
   const [mail, setMail] = useState({
     to: "marcus.johnson@example.com",
     subject: "One Nevada account update",
@@ -286,34 +321,42 @@ export default function AdminPage() {
   });
   const [extractedRecord, setExtractedRecord] = useState(null);
 
-  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) || accounts[0];
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) || accounts[0] || { id: "", owner: "—", type: "—", number: "—", balance: 0, status: "—" };
   const pendingTransactions = useMemo(() => transactions.filter((item) => item.status === "Pending").length, [transactions]);
 
-  const setAccountStatus = (accountId, status) => {
+  const setAccountStatus = async (accountId, status) => {
     setAccounts((current) => current.map((account) => (account.id === accountId ? { ...account, status } : account)));
+    await supabase.from("accounts").update({ status }).eq("id", accountId);
   };
 
-  const adjustBalance = (direction) => {
+  const adjustBalance = async (direction) => {
     const delta = Number(balanceAmount || 0);
     if (!(delta > 0)) return;
-    setAccounts((current) =>
-      current.map((account) =>
-        account.id === selectedAccountId
-          ? { ...account, balance: direction === "topup" ? account.balance + delta : account.balance - delta }
-          : account
-      )
-    );
+    const acct = accounts.find((a) => a.id === selectedAccountId);
+    if (!acct) return;
+    const newBalance = direction === "topup" ? acct.balance + delta : acct.balance - delta;
+    setAccounts((current) => current.map((a) => (a.id === selectedAccountId ? { ...a, balance: newBalance } : a)));
+    await supabase.from("accounts").update({ balance: newBalance, available: newBalance }).eq("id", selectedAccountId);
+    // Record an admin adjustment as a transaction for the user's ledger.
+    await supabase.from("transactions").insert({
+      account_id: selectedAccountId, user_id: (await supabase.from("accounts").select("user_id").eq("id", selectedAccountId).single()).data.user_id,
+      merchant: "Admin Adjustment", category: "Adjustment",
+      amount: direction === "topup" ? delta : -delta, icon_type: "bank",
+    });
   };
 
-  const updateTransaction = (transactionId, status) => {
+  const updateTransaction = async (transactionId, status) => {
     setTransactions((current) => current.map((item) => (item.id === transactionId ? { ...item, status } : item)));
+    await supabase.from("transfers").update({ status }).eq("id", transactionId);
   };
 
-  const approveAllTransactions = () => {
+  const approveAllTransactions = async () => {
+    const pendingIds = transactions.filter((t) => t.status === "Pending").map((t) => t.id);
     setTransactions((current) => current.map((item) => ({ ...item, status: "Successful" })));
+    if (pendingIds.length) await supabase.from("transfers").update({ status: "Successful" }).in("id", pendingIds);
   };
 
-  const updateVerification = (verificationId, status) => {
+  const updateVerification = async (verificationId, status) => {
     setVerifications((current) =>
       current.map((item) =>
         item.id === verificationId
@@ -321,6 +364,7 @@ export default function AdminPage() {
           : item
       )
     );
+    await supabase.from("kyc_submissions").update({ status: status === "Approved" ? "approved" : "rejected" }).eq("id", verificationId);
   };
 
   const sendMail = () => {
@@ -368,6 +412,19 @@ export default function AdminPage() {
     const excelBlob = new Blob([buildReportHtml(extractedRecord)], { type: "application/vnd.ms-excel" });
     downloadBlob(excelBlob, makeDownloadName(extractedRecord.lookup.fullName, "xls"));
   };
+
+  if (notAdmin) {
+    return (
+      <div className="min-h-screen bg-[#D6EAF8] flex items-center justify-center px-6">
+        <div className="rounded-2xl bg-white p-8 shadow-xl text-center max-w-md">
+          <Lock className="mx-auto h-10 w-10 text-red-500" />
+          <h1 className="mt-4 text-2xl font-black text-[#07133B]">Admin access required</h1>
+          <p className="mt-2 text-sm text-slate-600">Your account is not an administrator. Ask an admin to grant you access.</p>
+          <Link to="/dashboard" className="mt-6 inline-block rounded-full bg-[#041a49] px-6 py-3 text-sm font-bold text-white">Back to dashboard</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#D6EAF8] font-sans">
